@@ -65,7 +65,12 @@ def inspect_token_file(token_file: Path) -> TokenMetadata:
         id_token_str = data.get("id_token", "")
         payload = decode_jwt_payload(id_token_str)
 
-        email = payload.get("email") or "Unknown"
+        email = (
+            data.get("id_token_email")
+            or payload.get("email")
+            or data.get("email")
+            or "Unknown"
+        )
         expiry_str = token_info.get("expiry")
         has_refresh = bool(token_info.get("refresh_token"))
 
@@ -153,9 +158,11 @@ def setup_shadow_home(profile_dir: Path):
     """
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Private Antigravity CLI directory for this profile
+    # 1. Private Antigravity CLI and state directories for this profile
     gemini_cli_dir = profile_dir / ".gemini" / "antigravity-cli"
     gemini_cli_dir.mkdir(parents=True, exist_ok=True)
+    gemini_app_dir = profile_dir / ".gemini" / "antigravity"
+    gemini_app_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Shared Antigravity config (rules, mcp_config, projects)
     profile_gemini_config = profile_dir / ".gemini" / "config"
@@ -215,15 +222,17 @@ def import_existing_account_if_needed() -> Optional[str]:
     """
     If this is the first run and the user already has an authenticated account
     in ~/.gemini/antigravity-cli, import it into the 'default' profile.
+    Also synchronizes token metadata if 'default' email is Unknown.
     """
     ensure_base_dirs()
     cfg = load_config()
 
+    default_dir = get_profile_dir("default")
+    profile_token = default_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+
     if "default" not in cfg.get("profiles", {}):
         if DEFAULT_TOKEN_FILE.exists():
-            default_dir = get_profile_dir("default")
             setup_shadow_home(default_dir)
-            profile_token = default_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
             if not profile_token.exists():
                 shutil.copy2(DEFAULT_TOKEN_FILE, profile_token)
                 try:
@@ -242,7 +251,116 @@ def import_existing_account_if_needed() -> Optional[str]:
             cfg["active_profile"] = "default"
             save_config(cfg)
             return "default"
+    else:
+        # If default profile token is missing or has Unknown email, refresh from source
+        if DEFAULT_TOKEN_FILE.exists() and not profile_token.exists():
+            setup_shadow_home(default_dir)
+            shutil.copy2(DEFAULT_TOKEN_FILE, profile_token)
+            try:
+                os.chmod(profile_token, 0o600)
+            except OSError:
+                pass
+
+        meta = inspect_token_file(profile_token)
+        if meta.email not in ("Unknown", "None", "Error"):
+            current_saved = cfg.get("profiles", {}).get("default", {}).get("email")
+            if current_saved != meta.email:
+                cfg.setdefault("profiles", {}).setdefault("default", {})["email"] = meta.email
+                save_config(cfg)
+
     return None
+
+
+def get_default_authenticated_profile() -> str:
+    """Find a configured profile that has valid credentials, defaulting to 'default'."""
+    cfg = load_config()
+    active = cfg.get("active_profile", "default")
+
+    # 1. Check active profile
+    active_tok = get_profile_dir(active) / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    if active_tok.exists() and inspect_token_file(active_tok).status != TokenStatus.MISSING:
+        return active
+
+    # 2. Check "default" profile
+    default_tok = get_profile_dir("default") / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    if default_tok.exists() and inspect_token_file(default_tok).status != TokenStatus.MISSING:
+        return "default"
+
+    # 3. Check any configured profile with active credentials
+    for name in cfg.get("profiles", {}).keys():
+        tok = get_profile_dir(name) / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        if tok.exists() and inspect_token_file(tok).status != TokenStatus.MISSING:
+            return name
+
+    # 4. Check real base token file
+    if DEFAULT_TOKEN_FILE.exists():
+        import_existing_account_if_needed()
+        return "default"
+
+    return "default"
+
+
+def get_effective_profile(requested_name: Optional[str] = None):
+    """
+    Resolve the target profile to use for execution.
+    If the requested profile is missing, doesn't exist, or has no login credentials,
+    seamlessly fall back / redirect to the default authenticated profile without asking for login.
+
+    Returns: (target_profile_name, was_redirected, redirect_reason)
+    """
+    import_existing_account_if_needed()
+    cfg = load_config()
+    default_prof = get_default_authenticated_profile()
+
+    if not requested_name or requested_name in ("", "default"):
+        return (default_prof, False, None)
+
+    # Specific profile requested
+    if requested_name not in cfg.get("profiles", {}):
+        return (
+            default_prof,
+            True,
+            f"Profile '{requested_name}' does not exist.",
+        )
+
+    prof_dir = get_profile_dir(requested_name)
+    tok_file = prof_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    meta = inspect_token_file(tok_file)
+
+    if not tok_file.exists() or meta.status == TokenStatus.MISSING:
+        return (
+            default_prof,
+            True,
+            f"Profile '{requested_name}' has no saved login credentials.",
+        )
+
+    return (requested_name, False, None)
+
+
+def copy_profile_credentials(src_name: str, dst_name: str) -> bool:
+    """Copy authentication credentials from one profile to another."""
+    cfg = load_config()
+    if src_name not in cfg.get("profiles", {}):
+        return False
+
+    src_dir = get_profile_dir(src_name)
+    src_token = src_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    if not src_token.exists():
+        return False
+
+    dst_dir = get_profile_dir(dst_name)
+    if not dst_dir.exists():
+        create_profile(dst_name)
+
+    dst_token = dst_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    shutil.copy2(src_token, dst_token)
+    try:
+        os.chmod(dst_token, 0o600)
+    except OSError:
+        pass
+
+    update_profile_info(dst_name)
+    return True
 
 
 def create_profile(name: str, copy_from: Optional[str] = None) -> Path:

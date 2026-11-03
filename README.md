@@ -91,13 +91,23 @@ Both sessions run in full interactive mode concurrently!
 | :--- | :--- |
 | `agm list` (`agm ls`) | Render a rich Unicode table of all accounts, emails, and statuses |
 | `agm add <name>` | Provision a new profile and launch Google OAuth browser login |
-| `agm run <name> [args...]` | Run `agy` in the specified isolated account environment |
+| `agm copy <src> <dst>` | Copy authentication credentials directly from one profile to another |
+| `agm run [name] [args...]` | Run `agy` in profile environment (auto-redirects to default if unauthenticated) |
 | `agm switch <name>` | Set the global default account used by bare `agy` commands |
 | `agm whoami` | Show active profile and Google account email for shell/system |
 | `agm doctor` | Run environment diagnostics (CLI paths, tokens, symlinks) |
 | `agm pool [args...]` | Execute prompt with automatic failover across accounts |
 | `agm env <name>` | Output shell export statements (`eval "$(agm env work)"`) |
 | `agm remove <name>` | Safely delete a profile and its isolated state |
+
+---
+
+## Seamless Default Fallback & Zero Login Prompts
+
+`agm` ensures your workflow is never interrupted by accidental OAuth popups:
+- If you run `agm run` without a profile or use bare `agy`, it automatically executes under your active **default** account (`arunroshan1003@gmail.com`).
+- If you target an unauthenticated profile (e.g. `agy @unconfigured`), `agm` detects the missing token and automatically redirects execution to your default account without asking for login.
+- To share credentials with a new profile without logging in again: `agm copy default <new_profile>`.
 
 ---
 

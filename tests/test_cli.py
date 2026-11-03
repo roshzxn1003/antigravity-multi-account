@@ -55,6 +55,41 @@ class TestCLI(unittest.TestCase):
             self.assertIn('export HOME="', out)
             self.assertIn('export AGM_PROFILE="tester"', out)
 
+    def test_cli_run_redirects_to_default(self):
+        # Create default profile with valid token
+        default_dir = core.create_profile("default")
+        def_tok = default_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        import json
+        with open(def_tok, "w") as f:
+            json.dump({"token": {"refresh_token": "ref"}, "id_token_email": "default@test.com"}, f)
+
+        # Call cmd_run with an unauthenticated profile
+        core.create_profile("empty_profile")
+        args = cli.argparse.Namespace(profile="empty_profile")
+        with patch("agm.core.run_profile_command", return_value=0) as mock_run:
+            with patch("sys.stderr", new=io.StringIO()) as fake_err:
+                with self.assertRaises(SystemExit) as cm:
+                    cli.cmd_run(args, ["-p", "hello"])
+                self.assertEqual(cm.exception.code, 0)
+                mock_run.assert_called_once_with("default", ["agy", "-p", "hello"], stream_output=True)
+                self.assertIn("Redirecting to default account 'default'", fake_err.getvalue())
+
+    def test_cli_copy(self):
+        core.create_profile("prof_a")
+        src_tok = core.get_profile_dir("prof_a") / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        import json
+        with open(src_tok, "w") as f:
+            json.dump({"token": {"refresh_token": "ref"}, "id_token_email": "copied@test.com"}, f)
+
+        args = cli.argparse.Namespace(src="prof_a", dst="prof_b")
+        with patch("sys.stdout", new=io.StringIO()) as fake_out:
+            cli.cmd_copy(args)
+            self.assertIn("Copied credentials", fake_out.getvalue())
+
+        cfg = core.load_config()
+        self.assertIn("prof_b", cfg["profiles"])
+        self.assertEqual(cfg["profiles"]["prof_b"]["email"], "copied@test.com")
+
 
 if __name__ == "__main__":
     unittest.main()

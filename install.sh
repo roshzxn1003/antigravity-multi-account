@@ -50,23 +50,30 @@ ln -sf "$BIN_DIR/agm" "$BIN_DIR/agy-multi"
 
 echo -e "✔ Binaries installed to ${BOLD}$BIN_DIR/agm${RESET} and ${BOLD}$BIN_DIR/agy-multi${RESET}"
 
-# Configure shell integration in ~/.bashrc if not present
+# Configure or update shell integration in ~/.bashrc
 if [ -f "$HOME/.bashrc" ]; then
-    if ! grep -q "agm run" "$HOME/.bashrc"; then
-        echo -e "\n# Antigravity Multi-Account Integration" >> "$HOME/.bashrc"
-        echo -e "agy() {" >> "$HOME/.bashrc"
-        echo -e "    if [[ \"\$1\" == @* ]]; then" >> "$HOME/.bashrc"
-        echo -e "        local profile=\"\${1#@}\"" >> "$HOME/.bashrc"
-        echo -e "        shift" >> "$HOME/.bashrc"
-        echo -e "        agm run \"\$profile\" \"\$@\"" >> "$HOME/.bashrc"
-        echo -e "    else" >> "$HOME/.bashrc"
-        echo -e "        command agy \"\$@\"" >> "$HOME/.bashrc"
-        echo -e "    fi" >> "$HOME/.bashrc"
-        echo -e "}" >> "$HOME/.bashrc"
-        echo -e "✔ Configured shell dispatcher in ${BOLD}~/.bashrc${RESET}"
-    else
-        echo -e "✔ Shell integration already configured in ${BOLD}~/.bashrc${RESET}"
+    # Remove old block if present
+    if grep -q "# Antigravity Multi-Account Integration" "$HOME/.bashrc"; then
+        sed -i '/# Antigravity Multi-Account Integration/,/^[[:space:]]*}/d' "$HOME/.bashrc"
     fi
+    cat << 'EOF' >> "$HOME/.bashrc"
+
+# Antigravity Multi-Account Integration
+agy() {
+    if [[ "$1" == @* ]]; then
+        local profile="${1#@}"
+        shift
+        agm run "$profile" "$@"
+    elif [[ "$1" == "--profile" || "$1" == "-P" ]]; then
+        local profile="$2"
+        shift 2
+        agm run "$profile" "$@"
+    else
+        agm run "$@"
+    fi
+}
+EOF
+    echo -e "✔ Configured shell dispatcher in ${BOLD}~/.bashrc${RESET}"
 fi
 
 # Run diagnostics
