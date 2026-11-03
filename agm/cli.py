@@ -126,6 +126,7 @@ def cmd_add(args: argparse.Namespace):
     print(f"  {CYAN}● Incognito / Private Window{RESET} will open to prevent auto-login.")
     print(f"  {CYAN}● Account Selector forced{RESET} so Google displays the account chooser.")
     print(f"  ● Please sign into your {BOLD}OTHER / SECOND Google account{RESET}.")
+    print(f"  ● Once signed in via browser, exit Antigravity ({CYAN}/exit{RESET} or {CYAN}Ctrl+C{RESET}) to finish.")
     print(f"\nPress {colorize('Enter', BOLD)} to begin sign-in...")
 
     try:
@@ -135,7 +136,10 @@ def cmd_add(args: argparse.Namespace):
         return
 
     # Run agy with our OAuth interceptor to force account selection & incognito mode
-    core.run_profile_command(name, ["agy"], stream_output=True, use_interceptor=True)
+    try:
+        core.run_profile_command(name, ["agy"], stream_output=True, use_interceptor=True)
+    except KeyboardInterrupt:
+        print("\n\n" + colorize("Returned from Antigravity session.", DIM))
 
     print_step(3, 3, "Verifying Credentials")
     core.update_profile_info(name)
@@ -353,12 +357,16 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    if args.subcommand == "run":
-        cmd_run(args, extra)
-    elif args.subcommand == "pool":
-        cmd_pool(args, extra)
-    else:
-        args.func(args)
+    try:
+        if args.subcommand == "run":
+            cmd_run(args, extra)
+        elif args.subcommand == "pool":
+            cmd_pool(args, extra)
+        else:
+            args.func(args)
+    except KeyboardInterrupt:
+        print("\nAborted.")
+        sys.exit(130)
 
 
 if __name__ == "__main__":

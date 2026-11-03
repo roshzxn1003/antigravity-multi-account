@@ -63,9 +63,11 @@ def inspect_token_file(token_file: Path) -> TokenMetadata:
 
         token_info = data.get("token", {})
         id_token_str = data.get("id_token", "")
-        payload = decode_jwt_payload(id_token_str)
+        payload = decode_jwt_payload(id_token_str) if id_token_str else {}
+        if not payload and "access_token" in token_info:
+            payload = decode_jwt_payload(token_info.get("access_token", ""))
 
-        email = payload.get("email") or "Unknown"
+        email = data.get("id_token_email") or data.get("email") or payload.get("email") or "Unknown"
         expiry_str = token_info.get("expiry")
         has_refresh = bool(token_info.get("refresh_token"))
 
@@ -254,14 +256,28 @@ def create_profile(name: str, copy_from: Optional[str] = None) -> Path:
     setup_shadow_home(profile_dir)
 
     target_token = profile_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    target_settings = profile_dir / ".gemini" / "antigravity-cli" / "settings.json"
 
     if copy_from:
         src_profile_dir = get_profile_dir(copy_from)
         src_token = src_profile_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
-        if src_token.exists() and not target_token.exists():
+        if not src_token.exists() and copy_from == "default":
+            src_token = DEFAULT_TOKEN_FILE
+
+        if src_token.exists():
             shutil.copy2(src_token, target_token)
             try:
                 os.chmod(target_token, 0o600)
+            except OSError:
+                pass
+
+        src_settings = src_profile_dir / ".gemini" / "antigravity-cli" / "settings.json"
+        if not src_settings.exists() and copy_from == "default":
+            src_settings = DEFAULT_SETTINGS_FILE
+
+        if src_settings.exists():
+            try:
+                shutil.copy2(src_settings, target_settings)
             except OSError:
                 pass
 

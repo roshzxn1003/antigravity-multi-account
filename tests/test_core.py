@@ -88,6 +88,21 @@ class TestCore(unittest.TestCase):
         self.assertTrue(deleted)
         self.assertNotIn("work", core.load_config()["profiles"])
 
+    def test_inspect_token_with_id_token_email(self):
+        p_dir = core.create_profile("beta")
+        token_file = p_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        mock_data = {
+            "token": {"access_token": "mock_tok", "refresh_token": "mock_ref", "expiry": "2099-01-01T00:00:00Z"},
+            "auth_method": "consumer",
+            "id_token_email": "direct_email@example.com",
+        }
+        with open(token_file, "w") as f:
+            json.dump(mock_data, f)
+
+        meta = core.inspect_token_file(token_file)
+        self.assertEqual(meta.email, "direct_email@example.com")
+        self.assertEqual(meta.status, TokenStatus.ACTIVE_AUTO_REFRESH)
+
 
 if __name__ == "__main__":
     unittest.main()

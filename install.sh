@@ -50,15 +50,8 @@ ln -sf "$BIN_DIR/agm" "$BIN_DIR/agy-multi"
 
 echo -e "✔ Binaries installed to ${BOLD}$BIN_DIR/agm${RESET} and ${BOLD}$BIN_DIR/agy-multi${RESET}"
 
-# Configure shell integration in ~/.bashrc
-if [ -f "$HOME/.bashrc" ]; then
-    # Clean up any old definition if present
-    if grep -q "Antigravity Multi-Account Integration" "$HOME/.bashrc"; then
-        sed -i '/# Antigravity Multi-Account Integration/,+13d' "$HOME/.bashrc" 2>/dev/null || true
-    fi
-
-    cat << 'EOF' >> "$HOME/.bashrc"
-
+# Configure shell integration in ~/.bashrc and ~/.zshrc
+SHELL_SNIPPET='
 # Antigravity Multi-Account Integration
 agy() {
     if [[ "$1" == @* ]]; then
@@ -72,15 +65,22 @@ agy() {
     else
         command agy "$@"
     fi
-}
-EOF
-    echo -e "✔ Configured shell dispatcher in ${BOLD}~/.bashrc${RESET}"
-fi
+}'
 
+for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc_file" ]; then
+        if grep -q "Antigravity Multi-Account Integration" "$rc_file"; then
+            sed -i '/# Antigravity Multi-Account Integration/,+13d' "$rc_file" 2>/dev/null || true
+        fi
+        echo "$SHELL_SNIPPET" >> "$rc_file"
+        echo -e "✔ Configured shell dispatcher in ${BOLD}$rc_file${RESET}"
+    fi
+done
 
 # Run diagnostics
 echo -e "\n${CYAN}Running system diagnostics...${RESET}"
 "$BIN_DIR/agm" doctor
 
-echo -e "${GREEN}${BOLD}Installation complete!${RESET}"
+echo -e "\n${GREEN}${BOLD}Installation complete!${RESET}"
+echo -e "${YELLOW}${BOLD}⚡ IMPORTANT: Run '${CYAN}source ~/.bashrc${YELLOW}' (or restart your terminal) to enable '${CYAN}agy @<profile>${YELLOW}'.${RESET}"
 echo -e "Try: ${CYAN}agm list${RESET} or ${CYAN}agm add <profile_name>${RESET}\n"
