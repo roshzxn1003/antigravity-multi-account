@@ -18,6 +18,7 @@ REAL_HOME = Path(os.path.expanduser("~")).resolve()
 CONFIG_DIR = REAL_HOME / ".config" / "agy-accounts"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+ACTIVE_PROFILE_FILE = CONFIG_DIR / "active"
 
 DEFAULT_GEMINI_DIR = REAL_HOME / ".gemini"
 DEFAULT_CLI_DIR = DEFAULT_GEMINI_DIR / "antigravity-cli"
@@ -114,7 +115,7 @@ def inspect_token_file(token_file: Path) -> TokenMetadata:
 
 
 def ensure_base_dirs():
-    """Ensure configuration and profile directories exist."""
+    """Ensure configuration and profile directories exist and profiles are repaired."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     if not CONFIG_FILE.exists():
@@ -124,6 +125,17 @@ def ensure_base_dirs():
         }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(initial_cfg, f, indent=2)
+    if not ACTIVE_PROFILE_FILE.exists():
+        try:
+            cfg = load_config()
+            active = cfg.get("active_profile", "default")
+            ACTIVE_PROFILE_FILE.write_text(f"{active}\n", encoding="utf-8")
+        except Exception:
+            pass
+
+    for p in PROFILES_DIR.iterdir():
+        if p.is_dir():
+            repair_profile_isolation(p)
 
 
 def load_config() -> Dict[str, Any]:
@@ -137,15 +149,31 @@ def load_config() -> Dict[str, Any]:
 
 
 def save_config(cfg: Dict[str, Any]):
-    """Save configuration to config.json."""
+    """Save configuration to config.json and active state file."""
     ensure_base_dirs()
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    active = cfg.get("active_profile", "default")
+    try:
+        ACTIVE_PROFILE_FILE.write_text(f"{active}\n", encoding="utf-8")
+    except Exception:
+        pass
 
 
 def get_profile_dir(profile_name: str) -> Path:
     """Return the filesystem path for a profile's shadow home."""
     return PROFILES_DIR / profile_name
+
+
+def repair_profile_isolation(profile_dir: Path):
+    """Ensure sensitive Antigravity config in .config is an isolated directory and not symlinked."""
+    antigravity_cfg = profile_dir / ".config" / "antigravity"
+    if antigravity_cfg.is_symlink():
+        try:
+            antigravity_cfg.unlink()
+        except OSError:
+            pass
+    antigravity_cfg.mkdir(parents=True, exist_ok=True)
 
 
 def setup_shadow_home(profile_dir: Path):
@@ -188,14 +216,14 @@ def setup_shadow_home(profile_dir: Path):
             except OSError:
                 pass
 
-    # 4. Mirror ~/.config subdirectories (e.g. gh, git, code) except agy-accounts
+    # 4. Mirror ~/.config subdirectories (e.g. gh, git, code) except agy-accounts & antigravity
     real_user_config = REAL_HOME / ".config"
     profile_user_config = profile_dir / ".config"
     profile_user_config.mkdir(parents=True, exist_ok=True)
 
     if real_user_config.exists():
         for child in real_user_config.iterdir():
-            if child.name == "agy-accounts":
+            if child.name in ("agy-accounts", "antigravity"):
                 continue
             dest_child = profile_user_config / child.name
             if not dest_child.exists():
@@ -203,6 +231,9 @@ def setup_shadow_home(profile_dir: Path):
                     dest_child.symlink_to(child, target_is_directory=child.is_dir())
                 except OSError:
                     pass
+
+    # Ensure antigravity in profile .config is an isolated directory
+    repair_profile_isolation(profile_dir)
 
     # 5. Copy base settings.json if profile doesn't have one yet
     profile_settings = gemini_cli_dir / "settings.json"
@@ -241,7 +272,8 @@ def import_existing_account_if_needed() -> Optional[str]:
                 "last_used": datetime.datetime.now().isoformat(),
                 "path": str(default_dir),
             }
-            cfg["active_profile"] = "default"
+            if not cfg.get("active_profile"):
+                cfg["active_profile"] = "default"
             save_config(cfg)
             return "default"
     return None
@@ -354,6 +386,17 @@ def switch_profile(name: str) -> bool:
     if src_settings.exists():
         shutil.copy2(src_settings, DEFAULT_SETTINGS_FILE)
 
+    # Invalidate GNOME Keyring token so it does not override the switched profile
+    try:
+        subprocess.run(
+            ["secret-tool", "clear", "service", "gemini", "username", "antigravity"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except Exception:
+        pass
+
     cfg["active_profile"] = name
     cfg["profiles"][name]["last_used"] = datetime.datetime.now().isoformat()
     save_config(cfg)
@@ -382,9 +425,18 @@ def delete_profile(name: str) -> bool:
 def get_profile_env(name: str) -> Dict[str, str]:
     """Get environment variables for executing commands in this profile."""
     profile_dir = get_profile_dir(name)
+    repair_profile_isolation(profile_dir)
     env = os.environ.copy()
     env["HOME"] = str(profile_dir)
     env["AGM_PROFILE"] = name
+
+    # Preserve real DBUS address for the browser launcher if needed
+    if "DBUS_SESSION_BUS_ADDRESS" in env:
+        env["AGM_ORIG_DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
+
+    # Isolate from global desktop GNOME Keyring / Secret Service so that
+    # keyringAuth does not load or overwrite the default Google account token.
+    env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/dev/null"
     return env
 
 
@@ -400,6 +452,11 @@ def setup_oauth_interceptor() -> Path:
     content = """#!/usr/bin/env bash
 # Antigravity Multi-Account OAuth Interceptor
 URL="$1"
+
+# Restore desktop D-Bus address for browser launch if preserved
+if [ -n "$AGM_ORIG_DBUS_SESSION_BUS_ADDRESS" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="$AGM_ORIG_DBUS_SESSION_BUS_ADDRESS"
+fi
 
 if [[ "$URL" == *"accounts.google.com"* ]]; then
     # 1. Force account selection parameter so Google always shows the account chooser

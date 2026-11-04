@@ -19,16 +19,22 @@ class TestCLI(unittest.TestCase):
         self.orig_config_dir = core.CONFIG_DIR
         self.orig_profiles_dir = core.PROFILES_DIR
         self.orig_config_file = core.CONFIG_FILE
+        self.orig_active_file = core.ACTIVE_PROFILE_FILE
+        self.orig_default_token = core.DEFAULT_TOKEN_FILE
 
         core.CONFIG_DIR = self.test_dir / ".config" / "agy-accounts"
         core.PROFILES_DIR = core.CONFIG_DIR / "profiles"
         core.CONFIG_FILE = core.CONFIG_DIR / "config.json"
+        core.ACTIVE_PROFILE_FILE = core.CONFIG_DIR / "active"
+        core.DEFAULT_TOKEN_FILE = self.test_dir / "nonexistent_token"
         core.ensure_base_dirs()
 
     def tearDown(self):
         core.CONFIG_DIR = self.orig_config_dir
         core.PROFILES_DIR = self.orig_profiles_dir
         core.CONFIG_FILE = self.orig_config_file
+        core.ACTIVE_PROFILE_FILE = self.orig_active_file
+        core.DEFAULT_TOKEN_FILE = self.orig_default_token
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_cli_list_empty(self):
@@ -54,6 +60,14 @@ class TestCLI(unittest.TestCase):
             out = fake_out.getvalue()
             self.assertIn('export HOME="', out)
             self.assertIn('export AGM_PROFILE="tester"', out)
+
+    def test_cli_whoami_short(self):
+        core.create_profile("tester")
+        core.switch_profile("tester")
+        args = cli.argparse.Namespace(short=True)
+        with patch("sys.stdout", new=io.StringIO()) as fake_out:
+            cli.cmd_whoami(args)
+            self.assertEqual(fake_out.getvalue().strip(), "tester")
 
 
 if __name__ == "__main__":

@@ -18,16 +18,19 @@ class TestDoctor(unittest.TestCase):
         self.orig_config_dir = core.CONFIG_DIR
         self.orig_profiles_dir = core.PROFILES_DIR
         self.orig_config_file = core.CONFIG_FILE
+        self.orig_active_file = core.ACTIVE_PROFILE_FILE
 
         core.CONFIG_DIR = self.test_dir / ".config" / "agy-accounts"
         core.PROFILES_DIR = core.CONFIG_DIR / "profiles"
         core.CONFIG_FILE = core.CONFIG_DIR / "config.json"
+        core.ACTIVE_PROFILE_FILE = core.CONFIG_DIR / "active"
         core.ensure_base_dirs()
 
     def tearDown(self):
         core.CONFIG_DIR = self.orig_config_dir
         core.PROFILES_DIR = self.orig_profiles_dir
         core.CONFIG_FILE = self.orig_config_file
+        core.ACTIVE_PROFILE_FILE = self.orig_active_file
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_run_doctor_checks(self):

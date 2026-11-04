@@ -93,7 +93,31 @@ def run_doctor_checks(core_module) -> List[HealthCheckItem]:
         )
     )
 
-    # 6. Profile Tokens Health
+    # 6. Active Profile State File
+    active_file = core_module.ACTIVE_PROFILE_FILE
+    has_active_file = active_file.exists()
+    checks.append(
+        HealthCheckItem(
+            name="Persistent Active Profile State",
+            passed=has_active_file,
+            status="Synced" if has_active_file else "Missing",
+            details=f"Tracks reboot-safe active profile at {active_file}",
+        )
+    )
+
+    # 7. Keyring & Config Isolation Health
+    test_env = core_module.get_profile_env("default")
+    is_keyring_isolated = test_env.get("DBUS_SESSION_BUS_ADDRESS") == "unix:path=/dev/null"
+    checks.append(
+        HealthCheckItem(
+            name="GNOME Keyring Isolation",
+            passed=is_keyring_isolated,
+            status="Isolated" if is_keyring_isolated else "Vulnerable",
+            details="Desktop keyring blocked from leaking default token across profiles",
+        )
+    )
+
+    # 8. Profile Tokens Health
     profiles = core_module.list_profiles()
     valid_count = 0
     total_profiles = len(profiles)

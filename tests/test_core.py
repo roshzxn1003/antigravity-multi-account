@@ -21,16 +21,19 @@ class TestCore(unittest.TestCase):
         self.orig_config_dir = core.CONFIG_DIR
         self.orig_profiles_dir = core.PROFILES_DIR
         self.orig_config_file = core.CONFIG_FILE
+        self.orig_active_file = core.ACTIVE_PROFILE_FILE
 
         core.CONFIG_DIR = self.test_dir / ".config" / "agy-accounts"
         core.PROFILES_DIR = core.CONFIG_DIR / "profiles"
         core.CONFIG_FILE = core.CONFIG_DIR / "config.json"
+        core.ACTIVE_PROFILE_FILE = core.CONFIG_DIR / "active"
         core.ensure_base_dirs()
 
     def tearDown(self):
         core.CONFIG_DIR = self.orig_config_dir
         core.PROFILES_DIR = self.orig_profiles_dir
         core.CONFIG_FILE = self.orig_config_file
+        core.ACTIVE_PROFILE_FILE = self.orig_active_file
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_jwt_payload_decode(self):
@@ -102,6 +105,23 @@ class TestCore(unittest.TestCase):
         meta = core.inspect_token_file(token_file)
         self.assertEqual(meta.email, "direct_email@example.com")
         self.assertEqual(meta.status, TokenStatus.ACTIVE_AUTO_REFRESH)
+
+    def test_keyring_isolation_in_env(self):
+        env = core.get_profile_env("test_isolated")
+        self.assertEqual(env.get("DBUS_SESSION_BUS_ADDRESS"), "unix:path=/dev/null")
+        self.assertEqual(env.get("AGM_PROFILE"), "test_isolated")
+
+    def test_config_antigravity_is_directory_not_symlink(self):
+        p_dir = core.create_profile("gamma")
+        antigravity_cfg = p_dir / ".config" / "antigravity"
+        self.assertTrue(antigravity_cfg.is_dir())
+        self.assertFalse(antigravity_cfg.is_symlink())
+
+    def test_active_file_persistence(self):
+        core.create_profile("work")
+        self.assertTrue(core.switch_profile("work"))
+        active = core.ACTIVE_PROFILE_FILE.read_text().strip()
+        self.assertEqual(active, "work")
 
 
 if __name__ == "__main__":

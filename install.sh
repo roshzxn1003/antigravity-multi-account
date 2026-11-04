@@ -63,14 +63,22 @@ agy() {
         shift 2
         agm run "$profile" "$@"
     else
-        command agy "$@"
+        local active="default"
+        if [[ -f "$HOME/.config/agy-accounts/active" ]]; then
+            active="$(< "$HOME/.config/agy-accounts/active")"
+        fi
+        if [[ -n "$active" && "$active" != "default" ]]; then
+            agm run "$active" "$@"
+        else
+            command agy "$@"
+        fi
     fi
 }'
 
 for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
     if [ -f "$rc_file" ]; then
         if grep -q "Antigravity Multi-Account Integration" "$rc_file"; then
-            sed -i '/# Antigravity Multi-Account Integration/,+13d' "$rc_file" 2>/dev/null || true
+            sed -i '/# Antigravity Multi-Account Integration/,+25d' "$rc_file" 2>/dev/null || true
         fi
         echo "$SHELL_SNIPPET" >> "$rc_file"
         echo -e "✔ Configured shell dispatcher in ${BOLD}$rc_file${RESET}"

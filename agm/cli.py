@@ -178,7 +178,7 @@ def cmd_run(args: argparse.Namespace, extra_args: List[str]):
         sys.exit(1)
 
     cmd = ["agy"] + extra_args
-    sys.exit(core.run_profile_command(name, cmd, stream_output=True))
+    sys.exit(core.run_profile_command(name, cmd, stream_output=True, use_interceptor=True))
 
 
 def cmd_switch(args: argparse.Namespace):
@@ -201,6 +201,10 @@ def cmd_whoami(args: argparse.Namespace):
     cfg = core.load_config()
     active_name = cfg.get("active_profile", "default")
     env_name = os.environ.get("AGM_PROFILE")
+
+    if getattr(args, "short", False):
+        print(env_name or active_name)
+        return
 
     print_banner()
     print(f"{BOLD}Active Antigravity Account Identity:{RESET}\n")
@@ -330,6 +334,7 @@ def main():
 
     # whoami
     sub_whoami = subparsers.add_parser("whoami", help="Display current active account")
+    sub_whoami.add_argument("-s", "--short", action="store_true", help="Print only active profile name")
     sub_whoami.set_defaults(func=cmd_whoami)
 
     # doctor
