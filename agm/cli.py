@@ -168,17 +168,49 @@ def cmd_add(args: argparse.Namespace):
 def cmd_run(args: argparse.Namespace, extra_args: List[str]):
     """Run agy within the specified profile's environment."""
     core.import_existing_account_if_needed()
-    name = args.profile
-    cfg = core.load_config()
 
-    if name not in cfg.get("profiles", {}):
-        print(colorize(f"Error: Profile '{name}' does not exist.", RED + BOLD))
-        print(f"Available profiles: {', '.join(cfg.get('profiles', {}).keys())}")
-        print(f"Create it with: `agm add {name}`")
-        sys.exit(1)
+    requested_profile = args.profile
+    # If the user ran `agm run -p "prompt"`: args.profile might start with '-'
+    if requested_profile and requested_profile.startswith("-"):
+        extra_args.insert(0, requested_profile)
+        requested_profile = None
+
+    # Strip redundant 'agy' if provided (e.g. `agm run default agy -p "hello"`)
+    if extra_args and extra_args[0] == "agy":
+        extra_args = extra_args[1:]
+
+    target_profile, redirected, reason = core.get_effective_profile(requested_profile)
+
+    if redirected:
+        target_dir = core.get_profile_dir(target_profile)
+        target_meta = core.inspect_token_file(
+            target_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        )
+        email_str = f" ({target_meta.email})" if target_meta.email not in ("None", "Unknown") else ""
+        print(
+            colorize(
+                f"ℹ {reason} Redirecting to default account '{target_profile}'{email_str} without asking for login.",
+                YELLOW + BOLD,
+            ),
+            file=sys.stderr,
+        )
 
     cmd = ["agy"] + extra_args
-    sys.exit(core.run_profile_command(name, cmd, stream_output=True, use_interceptor=True))
+    sys.exit(core.run_profile_command(target_profile, cmd, stream_output=True, use_interceptor=True))
+
+
+def cmd_copy(args: argparse.Namespace):
+    """Copy authentication credentials from one profile to another."""
+    core.import_existing_account_if_needed()
+    src = args.src
+    dst = args.dst
+    if core.copy_profile_credentials(src, dst):
+        cfg = core.load_config()
+        email = cfg.get("profiles", {}).get(dst, {}).get("email", "Unknown")
+        print(colorize(f"✔ Copied credentials from '{src}' to '{dst}' ({email})", GREEN + BOLD))
+    else:
+        print(colorize(f"Error: Could not copy credentials from '{src}' to '{dst}'.", RED + BOLD))
+        sys.exit(1)
 
 
 def cmd_switch(args: argparse.Namespace):
@@ -323,9 +355,15 @@ def main():
 
 
     # run
-    sub_run = subparsers.add_parser("run", help="Run agy under a specific account profile")
-    sub_run.add_argument("profile", help="Profile to run under")
+    sub_run = subparsers.add_parser("run", help="Run agy under a specific account profile (or default)")
+    sub_run.add_argument("profile", nargs="?", default=None, help="Profile to run under (defaults to active/default account)")
     sub_run.set_defaults(func=cmd_run)
+
+    # copy
+    sub_cp = subparsers.add_parser("copy", aliases=["cp"], help="Copy credentials from one profile to another")
+    sub_cp.add_argument("src", help="Source profile")
+    sub_cp.add_argument("dst", help="Destination profile")
+    sub_cp.set_defaults(func=cmd_copy)
 
     # switch
     sub_switch = subparsers.add_parser("switch", aliases=["use"], help="Set the default active account")

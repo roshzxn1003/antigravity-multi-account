@@ -123,6 +123,47 @@ class TestCore(unittest.TestCase):
         active = core.ACTIVE_PROFILE_FILE.read_text().strip()
         self.assertEqual(active, "work")
 
+    def test_get_effective_profile_fallback(self):
+        # Create default profile with valid token
+        default_dir = core.create_profile("default")
+        def_tok = default_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        with open(def_tok, "w") as f:
+            json.dump({"token": {"refresh_token": "ref"}, "id_token_email": "default@company.com"}, f)
+
+        # 1. Unauthenticated profile redirects to default
+        core.create_profile("unauth_profile")
+        target, redirected, reason = core.get_effective_profile("unauth_profile")
+        self.assertEqual(target, "default")
+        self.assertTrue(redirected)
+        self.assertIn("no saved login", reason)
+
+        # 2. Non-existent profile redirects to default
+        target, redirected, reason = core.get_effective_profile("ghost_profile")
+        self.assertEqual(target, "default")
+        self.assertTrue(redirected)
+        self.assertIn("does not exist", reason)
+
+        # 3. None or empty requests default
+        target, redirected, reason = core.get_effective_profile(None)
+        self.assertEqual(target, "default")
+        self.assertFalse(redirected)
+
+    def test_copy_profile_credentials(self):
+        src_dir = core.create_profile("src_prof")
+        src_tok = src_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        with open(src_tok, "w") as f:
+            json.dump({"token": {"refresh_token": "ref"}, "id_token_email": "shared@domain.com"}, f)
+
+        core.create_profile("dst_prof")
+        copied = core.copy_profile_credentials("src_prof", "dst_prof")
+        self.assertTrue(copied)
+
+        dst_dir = core.get_profile_dir("dst_prof")
+        dst_tok = dst_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        self.assertTrue(dst_tok.exists())
+        meta = core.inspect_token_file(dst_tok)
+        self.assertEqual(meta.email, "shared@domain.com")
+
 
 if __name__ == "__main__":
     unittest.main()
